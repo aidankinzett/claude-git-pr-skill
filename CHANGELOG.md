@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local testing instructions
 - TDD process documentation
 
-## [Unreleased]
+## [1.1.0] - 2025-12-02
 
 ### Added
 - **gh CLI detection** - Checks if gh is installed before attempting review workflow
@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Core workflow** - Now includes gh CLI check as first required step (5 steps instead of 4)
 - **Error handling** - Stops immediately if gh not installed instead of failing later
+
+## [Unreleased]
 
 ### Planned
 - Multi-line code suggestion examples
