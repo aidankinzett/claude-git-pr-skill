@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **gh CLI detection** - Checks if gh is installed before attempting review workflow
+- **Installation instructions** - Provides link to https://cli.github.com/ if gh not found
+- **Prerequisites section** - Clear guidance on required tools before starting
+- **Authentication reminder** - Instructions to run `gh auth login` after installing
+- **New red flags** - Warns against skipping gh detection step
+
+### Changed
+- **Core workflow** - Now includes gh CLI check as first required step (5 steps instead of 4)
+- **Error handling** - Stops immediately if gh not installed instead of failing later
+
 ### Planned
 - Multi-line code suggestion examples
 - Additional event type scenarios

@@ -18,14 +18,57 @@ Workflow for reviewing GitHub pull requests using `gh api` to create pending rev
 - Adding code suggestions to PRs
 - Posting review comments with the gh CLI
 
+## Prerequisites
+
+**CRITICAL: Check if gh CLI is installed before attempting to use this skill.**
+
+### Check for gh CLI
+
+Before starting any PR review workflow, verify the gh CLI is available:
+
+```bash
+gh --version
+```
+
+**If gh is not installed:**
+
+1. **Stop immediately** - Do not attempt to run gh api commands
+2. **Inform the user** with this message:
+
+```
+The GitHub CLI (gh) is required for this skill but is not installed.
+
+Please install it from: https://cli.github.com/
+
+Installation options:
+- macOS: brew install gh
+- Windows: winget install GitHub.cli
+- Linux: See https://cli.github.com/ for your distro
+
+After installing, authenticate with:
+  gh auth login
+
+Then try your PR review request again.
+```
+
+3. **Do not proceed** with the review workflow until gh is installed
+
+### After Installation
+
+Once gh is installed, users must authenticate:
+```bash
+gh auth login
+```
+
 ## Core Workflow
 
 **REQUIRED STEPS (do not skip):**
 
-1. **Draft the review** - Analyze PR and prepare all comments
-2. **Show user exactly what will be posted** - Use AskUserQuestion with yes/no
-3. **Get explicit approval** - Wait for user confirmation
-4. **Post the review** - Only after approval
+1. **Check gh CLI is installed** - Run `gh --version` to verify
+2. **Draft the review** - Analyze PR and prepare all comments
+3. **Show user exactly what will be posted** - Use AskUserQuestion with yes/no
+4. **Get explicit approval** - Wait for user confirmation
+5. **Post the review** - Only after approval
 
 ### Approval Pattern
 
@@ -157,8 +200,10 @@ Stop if you're thinking:
 - **"User already approved the review idea, so I'll skip the approval step"**
 - **"I'll post it and then tell them what I posted"**
 - **"The approval step slows things down"**
+- **"I'll check for gh later, let me draft the review first"**
+- **"gh is probably installed, no need to check"**
 
-**All of these mean: STOP. Get explicit approval first, then use pending review.**
+**All of these mean: STOP. Check gh first, get explicit approval, then use pending review.**
 
 **Why pending reviews?** Take the same time (2 API calls vs 1) but provide critical benefits:
 - Can add more comments if you find additional issues while writing the first
