@@ -14,24 +14,42 @@ This skill teaches Claude to:
 
 ### Option 1: Direct Installation (Recommended)
 
-Clone this repo into your Claude Code skills directory:
+**For personal skills** (available across all your projects):
 
 ```bash
-# For personal skills (available in all projects)
-git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git ~/.claude/skills/github-pr-review
+# Create the skills directory if it doesn't exist
+mkdir -p ~/.claude/skills
 
-# Or for project-specific skills
-git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git .claude/skills/github-pr-review
+# Clone into the skills directory
+cd ~/.claude/skills
+git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git
 ```
 
-### Option 2: Plugin Marketplace
+This creates `~/.claude/skills/claude-git-pr-skill/skills/github-pr-review/SKILL.md`
 
-Add this repo as a marketplace and install the skill:
+**For project-specific skills** (shared with your team via git):
 
 ```bash
-# In Claude Code
-/plugin marketplace add YOUR_USERNAME/claude-git-pr-skill
-/plugin install github-pr-review@YOUR_USERNAME/claude-git-pr-skill
+# In your project root
+mkdir -p .claude/skills
+cd .claude/skills
+git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git
+
+# Commit to your project
+git add .claude/skills/claude-git-pr-skill
+git commit -m "Add github-pr-review skill"
+```
+
+### Option 2: Manual Copy
+
+Simply copy the `skills/github-pr-review` folder:
+
+```bash
+# Personal
+cp -r skills/github-pr-review ~/.claude/skills/
+
+# Project
+cp -r skills/github-pr-review .claude/skills/
 ```
 
 ## Usage
@@ -46,12 +64,15 @@ Claude: *Uses github-pr-review skill to create pending review with batched comme
 ## What Makes This Skill Different
 
 **Without this skill**, Claude might:
-- Post comments immediately instead of batching them
+- Post comments immediately without showing you first
 - Skip pending reviews under time pressure
 - Use incorrect `gh api` syntax
 - Choose the wrong event type
+- Post comments you didn't approve
 
 **With this skill**, Claude will:
+- ✅ **Show you exactly what will be posted** before posting
+- ✅ **Ask for explicit approval** using yes/no questions
 - ✅ Always create pending reviews first
 - ✅ Batch all comments together
 - ✅ Use code suggestions with ```suggestion blocks
@@ -60,7 +81,25 @@ Claude: *Uses github-pr-review skill to create pending review with batched comme
 
 ## Workflow Pattern
 
-The skill enforces this two-step workflow:
+The skill enforces this workflow:
+
+**1. Draft → 2. Show & Approve → 3. Post**
+
+### Step 1: Draft Review
+Claude analyzes the PR and prepares comments with code suggestions.
+
+### Step 2: Show & Get Approval
+Claude shows you EXACTLY what will be posted:
+- Each comment with file and line number
+- Code suggestions formatted
+- Event type (APPROVE/REQUEST_CHANGES/COMMENT)
+- Overall review message
+
+You review and approve (or request changes).
+
+### Step 3: Post Review (Technical)
+
+After your approval, Claude posts using this pattern:
 
 ```bash
 # Step 1: Create PENDING review with all comments

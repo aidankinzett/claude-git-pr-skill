@@ -1,6 +1,7 @@
 ---
 name: github-pr-review
 description: Use when reviewing GitHub pull requests with gh CLI - creates pending reviews with code suggestions, batches comments, and chooses appropriate event types (COMMENT/APPROVE/REQUEST_CHANGES)
+allowed-tools: AskUserQuestion
 ---
 
 # GitHub PR Review
@@ -9,6 +10,8 @@ description: Use when reviewing GitHub pull requests with gh CLI - creates pendi
 
 Workflow for reviewing GitHub pull requests using `gh api` to create pending reviews with code suggestions. **Always use pending reviews to batch comments, even under time pressure.**
 
+**CRITICAL: Always get explicit user approval before posting any review comments.** Show exactly what will be posted and ask for yes/no confirmation using AskUserQuestion.
+
 ## When to Use
 
 - Reviewing pull requests
@@ -16,6 +19,32 @@ Workflow for reviewing GitHub pull requests using `gh api` to create pending rev
 - Posting review comments with the gh CLI
 
 ## Core Workflow
+
+**REQUIRED STEPS (do not skip):**
+
+1. **Draft the review** - Analyze PR and prepare all comments
+2. **Show user exactly what will be posted** - Use AskUserQuestion with yes/no
+3. **Get explicit approval** - Wait for user confirmation
+4. **Post the review** - Only after approval
+
+### Approval Pattern
+
+Before posting ANY review, use AskUserQuestion to show:
+- File and line number for each comment
+- Exact comment text (including code suggestions)
+- Event type (APPROVE/REQUEST_CHANGES/COMMENT)
+- Overall review message
+
+**Example:**
+```
+Question: "Ready to post this review?"
+Header: "PR Review"
+Options:
+  - Yes, post it: Posts the review as shown
+  - No, let me revise: Allows refinement
+```
+
+### Technical Workflow
 
 **ALWAYS use the pending review pattern, even for single comments:**
 
@@ -125,16 +154,52 @@ Stop if you're thinking:
 - "Only one comment so I'll post directly"
 - "Time pressure means I should post immediately"
 - "I'll post this one now and batch the rest later"
+- **"User already approved the review idea, so I'll skip the approval step"**
+- **"I'll post it and then tell them what I posted"**
+- **"The approval step slows things down"**
 
-**All of these mean: Use pending review anyway.**
+**All of these mean: STOP. Get explicit approval first, then use pending review.**
 
-**Why?** Pending reviews take the same time (2 API calls vs 1) but provide critical benefits:
+**Why pending reviews?** Take the same time (2 API calls vs 1) but provide critical benefits:
 - Can add more comments if you find additional issues while writing the first
 - Can review your own comments before submitting
 - Consistent workflow regardless of urgency
 - Batches all comments into one notification for the PR author
 
-## Multiple Comments Example
+**Why approval step?** Users need to see exactly what will be posted publicly:
+- Review comments are public and permanent
+- Code suggestions might be incorrect
+- Tone might need adjustment
+- User might want to refine the message
+
+## Complete Example with Approval
+
+**Step 1: Draft and show for approval**
+
+First, analyze the PR and draft your comments. Then use AskUserQuestion:
+
+```
+I've reviewed PR #123 and found 3 issues. Here's what I'll post:
+
+**Comment 1:** src/auth.ts line 20
+Token expiry validation is missing...
+[code suggestion shown]
+
+**Comment 2:** src/auth.ts line 35
+Missing error handling...
+[code suggestion shown]
+
+**Comment 3:** tests/auth.test.ts line 12
+Missing error case test...
+[code suggestion shown]
+
+**Event Type:** REQUEST_CHANGES
+**Overall message:** "Found 3 issues that need to be addressed before merging."
+
+Ready to post this review?
+```
+
+**Step 2: After approval, post the review**
 
 ```bash
 # Create pending review with multiple comments
