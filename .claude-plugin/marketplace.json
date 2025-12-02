@@ -1,0 +1,23 @@
+{
+  "name": "github-pr-skills",
+  "owner": {
+    "name": "Aidan Kinzett",
+    "email": "[email protected]"
+  },
+  "metadata": {
+    "description": "Professional GitHub PR review skills for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "github-pr-review",
+      "source": "./github-pr-review",
+      "description": "Professional GitHub PR reviews with pending reviews, code suggestions, and user approval workflow",
+      "version": "1.0.0",
+      "author": {
+        "name": "Aidan Kinzett"
+      },
+      "keywords": ["github", "pr", "review", "code-suggestions", "gh-cli"]
+    }
+  ]
+}

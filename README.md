@@ -12,44 +12,52 @@ This skill teaches Claude to:
 
 ## Installation
 
-### Option 1: Direct Installation (Recommended)
+### Option 1: Plugin Marketplace (Recommended)
 
-**For personal skills** (available across all your projects):
+Install directly from the marketplace using Claude Code:
 
 ```bash
-# Create the skills directory if it doesn't exist
-mkdir -p ~/.claude/skills
+# Add this marketplace
+/plugin marketplace add aidankinzett/claude-git-pr-skill
 
-# Clone into the skills directory
-cd ~/.claude/skills
-git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git
+# Install the plugin
+/plugin install github-pr-review
+
+# Verify installation
+/plugin list
 ```
 
-This creates `~/.claude/skills/claude-git-pr-skill/skills/github-pr-review/SKILL.md`
+**For team-wide installation**, add to `.claude/settings.json`:
 
-**For project-specific skills** (shared with your team via git):
-
-```bash
-# In your project root
-mkdir -p .claude/skills
-cd .claude/skills
-git clone https://github.com/YOUR_USERNAME/claude-git-pr-skill.git
-
-# Commit to your project
-git add .claude/skills/claude-git-pr-skill
-git commit -m "Add github-pr-review skill"
+```json
+{
+  "extraKnownMarketplaces": [
+    {
+      "name": "github-pr-skills",
+      "source": {
+        "source": "github",
+        "repo": "aidankinzett/claude-git-pr-skill"
+      }
+    }
+  ],
+  "plugins": {
+    "github-pr-review": {
+      "enabled": true
+    }
+  }
+}
 ```
 
 ### Option 2: Manual Copy
 
-Simply copy the `skills/github-pr-review` folder:
+Copy the skill directly to your skills directory:
 
 ```bash
-# Personal
-cp -r skills/github-pr-review ~/.claude/skills/
+# Personal (all projects)
+cp -r github-pr-review/skills/github-pr-review ~/.claude/skills/
 
-# Project
-cp -r skills/github-pr-review .claude/skills/
+# Project-specific
+cp -r github-pr-review/skills/github-pr-review .claude/skills/
 ```
 
 ## Usage
@@ -136,12 +144,37 @@ gh api repos/:owner/:repo/pulls/123/reviews/<REVIEW_ID>/events \
 
 MIT (or specify your license)
 
+## Repository Structure
+
+```
+.claude-plugin/
+  marketplace.json          # Plugin marketplace definition
+github-pr-review/           # Plugin root
+  skills/                   # Skills directory
+    github-pr-review/       # The skill
+      SKILL.md              # Skill definition
+```
+
 ## Contributing
 
 This skill was created using Test-Driven Development for skills:
-1. Baseline tests identified violations (posting immediately under time pressure)
+1. Baseline tests identified violations (posting immediately under time pressure, no user approval)
 2. Skill was written to address those violations
 3. Tests verified the skill works correctly
 4. Edge cases were tested and handled
+5. Approval workflow added after user feedback
 
 If you find edge cases where the skill doesn't work correctly, please open an issue!
+
+## Development
+
+To test changes locally:
+
+```bash
+# Symlink for testing
+ln -s $(pwd)/github-pr-review/skills/github-pr-review ~/.claude/skills/github-pr-review
+
+# Or use the plugin marketplace locally
+/plugin marketplace add file://$(pwd)
+/plugin install github-pr-review
+```
