@@ -1,0 +1,15 @@
+{
+  "commit_id": "YOUR_COMMIT_SHA_HERE",
+  "comments": [
+    {
+      "path": "path/to/file.ts",
+      "position": 1,
+      "body": "Your comment here\n\n```suggestion\n// Suggested code\nconst fixed = \"like this\";\n```\n\nAdditional explanation."
+    },
+    {
+      "path": "path/to/another-file.ts",
+      "position": 5,
+      "body": "Another comment"
+    }
+  ]
+}

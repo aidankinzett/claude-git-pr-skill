@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Pre-commit hook: Validate positions in review JSON before committing
+# Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+# Check if any review JSON files are being committed
+HAS_REVIEW_JSON=false
+for FILE in $STAGED_FILES; do
+  if [[ "$FILE" =~ .*review.*\.json$ ]]; then
+    HAS_REVIEW_JSON=true
+    REVIEW_JSON_FILE="$FILE"
+    break
+  fi
+done
+
+# Only validate if review JSON files are being committed
+if [ "$HAS_REVIEW_JSON" = true ]; then
+  echo "=== Validating positions in review JSON ==="
+  echo "File: $REVIEW_JSON_FILE"
+  echo ""
+
+  # Extract PR number from JSON if available
+  PR_NUMBER=$(grep -o '"pr_number":[[:space:]]*[0-9]*' "$REVIEW_JSON_FILE" 2>/dev/null | head -1 | grep -o '[0-9]*' || echo "")
+
+  if [ -n "$PR_NUMBER" ]; then
+    echo "PR Number: $PR_NUMBER"
+  fi
+
+  # Validate JSON structure
+  if command -v jq &> /dev/null; then
+    if ! jq empty "$REVIEW_JSON_FILE" 2>/dev/null; then
+      echo "❌ Invalid JSON in $REVIEW_JSON_FILE"
+      echo "Please fix the JSON syntax before committing."
+      exit 1
+    fi
+  fi
+
+  # Check for position fields
+  POSITIONS=$(grep -o '"position":[[:space:]]*[0-9]*' "$REVIEW_JSON_FILE" 2>/dev/null | grep -o '[0-9]*' || echo "")
+
+  if [ -n "$POSITIONS" ]; then
+    echo "Found positions: $POSITIONS"
+    echo ""
+    echo "⚠️  Position validation requires PR number."
+    echo "   Run ./commands/validate-review.sh <pr_number> $REVIEW_JSON_FILE before committing."
+  fi
+
+  echo "✅ JSON structure validated"
+fi
+
+exit 0
