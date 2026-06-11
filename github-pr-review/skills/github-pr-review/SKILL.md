@@ -124,11 +124,35 @@ gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews/REVIEW_ID/events \
   -f body="Optional overall review message"
 
 # Step 3: Verify every comment landed on the correct line
-gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews/REVIEW_ID/comments \
-  --jq '.[] | {path, line, preview: .body[0:80]}'
+# Use the pulls/comments endpoint — the reviews/REVIEW_ID/comments endpoint
+# returns line: null for all comments regardless of placement.
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+  --jq '.[] | {path, line, side, preview: .body[0:80]}'
 ```
 
-**What to look for in Step 3:** Every comment should have a non-null `line` matching what you intended. A null `line` means the comment fell back to the review body — re-check the `path` (must match the diff exactly) and `line` (must be a line present in the diff).
+**What to look for in Step 3:** Every comment should have a non-null `line` and `side` matching what you intended. A null `line` means the comment fell back to the review body — re-check the `path` (must match the diff exactly) and `line` (must be a line present in the diff).
+
+### Replying to Comments
+
+To reply to an existing review comment thread (e.g. to acknowledge feedback or post a corrected suggestion), use the replies endpoint with the pull number in the path:
+
+```bash
+python3 -c '
+import json
+payload = {"body": "Reply text, or a corrected suggestion:\n\n```suggestion\nfixed code here\n```"}
+print(json.dumps(payload))
+' | gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
+  -X POST \
+  --input -
+```
+
+**CRITICAL path shape:** The URL must be `.../pulls/{PR_NUMBER}/comments/{COMMENT_ID}/replies`. The shorter form `.../pulls/comments/{COMMENT_ID}/replies` (without the pull number) returns 404.
+
+Use `COMMENT_ID` of the **first comment in the thread** (the one that opened the inline annotation), not a reply comment ID. Get IDs from:
+
+```bash
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --jq '.[] | {id, line, preview: .body[0:60]}'
+```
 
 ## Event Types
 
@@ -208,9 +232,17 @@ For multi-line suggestions, also set `start_line` (and `start_side`) to span the
 
 **Important**: The suggestion replaces the entire line range. Make sure the suggested code is complete and correct.
 
-### Edge Case: Suggestions with Nested Code Blocks
+### Edge Case: Suggestions Containing Triple Backticks
 
-When suggesting changes to markdown files or documentation that contain triple backticks, use 4 backticks or tildes to prevent conflicts:
+When the suggested content itself contains triple backticks — including when correcting a broken code fence — the suggestion block delimiters must use 4 backticks or tildes, otherwise GitHub treats the first ` ``` ` it sees as the closing delimiter and the suggestion content becomes empty.
+
+**Correcting a code fence line** (e.g. replacing ```` ```` with ` ``` `):
+
+```python
+"body": "Closing fence has four backticks instead of three.\n\n````suggestion\n```\n````"
+```
+
+**Suggesting code that contains fenced blocks** (e.g. markdown documentation):
 
 `````markdown
 ````suggestion
@@ -221,7 +253,7 @@ const example = "value";
 ````
 `````
 
-Or use tildes:
+Or use tildes instead of 4 backticks:
 
 ```markdown
 ~~~suggestion
@@ -240,7 +272,9 @@ const example = "value";
 | Using `-f 'comments[][path]=...'` flags | Build a Python dict and pipe with `--input -` — `-f [][]` creates flat scalar arrays, not objects |
 | Not getting commit SHA | Run `gh pr view <NUMBER> --json commits --jq '.commits[-1].oid'` |
 | Using wrong event type | Security/bugs → REQUEST_CHANGES, Style → APPROVE, Questions → COMMENT |
-| Skipping post-post verification | Run `gh api .../reviews/REVIEW_ID/comments --jq '.[] | {path, line}'` to confirm inline placement |
+| Skipping post-post verification | Run `gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --jq '.[] | {path, line}'` to confirm inline placement |
+| Using `.../reviews/REVIEW_ID/comments` to verify | That endpoint returns `line: null` for all comments; use `.../pulls/PR_NUMBER/comments` instead |
+| Using `.../pulls/comments/{id}/replies` for replies | Missing the pull number returns 404; correct form is `.../pulls/{PR_NUMBER}/comments/{id}/replies` |
 
 ## Red Flags - You're About to Violate the Pattern
 
@@ -256,6 +290,9 @@ Stop if you're thinking:
 - **"gh is probably installed, no need to check"**
 - **"I'll use `-f 'comments[][]...'` flags, it's simpler"**
 - **"I'll skip the verification step, the post succeeded so it must be fine"**
+- **"I'll verify with `.../reviews/REVIEW_ID/comments`, same thing"**
+- **"I'll reply with `.../pulls/comments/{id}/replies`"**
+- **"The suggestion content is just ` ``` `, no need for 4-backtick delimiters"**
 
 **All of these mean: STOP. Check gh first, get explicit approval, use pending review with JSON payload, then verify.**
 
@@ -347,8 +384,9 @@ gh api repos/OWNER/REPO/pulls/123/reviews/REVIEW_ID/events \
 **Step 3: Verify inline placement**
 
 ```bash
-gh api repos/OWNER/REPO/pulls/123/reviews/REVIEW_ID/comments \
-  --jq '.[] | {path, line, preview: .body[0:80]}'
+# Use pulls/comments, NOT reviews/REVIEW_ID/comments — the latter returns line: null for everything
+gh api repos/OWNER/REPO/pulls/123/comments \
+  --jq '.[] | {path, line, side, preview: .body[0:80]}'
 ```
 
 Expected output — every comment should have a non-null `line`:
