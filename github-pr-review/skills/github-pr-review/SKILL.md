@@ -1,7 +1,7 @@
 ---
 name: github-pr-review
 description: Use when reviewing GitHub pull requests with gh CLI - creates pending reviews with code suggestions, batches comments, and chooses appropriate event types (COMMENT/APPROVE/REQUEST_CHANGES)
-allowed-tools: AskUserQuestion
+allowed-tools: AskUserQuestion, Bash
 ---
 
 # GitHub PR Review
@@ -69,6 +69,7 @@ gh auth login
 3. **Show user exactly what will be posted** - Use AskUserQuestion with yes/no
 4. **Get explicit approval** - Wait for user confirmation
 5. **Post the review** - Only after approval
+6. **Verify inline placement** - Confirm every comment landed on the correct line
 
 ### Approval Pattern
 
@@ -89,32 +90,68 @@ Options:
 
 ### Technical Workflow
 
-**ALWAYS use the pending review pattern, even for single comments:**
+**ALWAYS use the pending review pattern, even for single comments.**
+
+**CRITICAL: Use `python3` to build the JSON payload and pipe it with `--input -`.** Do NOT use `-f 'comments[][field]=value'` flags — `gh api` appends each `[][...]` as a separate scalar array element rather than grouping fields into objects, so comments end up as a flat list instead of an array of objects. GitHub then ignores the line information and falls back to posting everything as a single review body.
 
 ```bash
-# Step 1: Create PENDING review (no event field)
-gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews \
+# Step 1: Create PENDING review — build JSON with python3, pipe to gh api
+python3 -c '
+import json
+payload = {
+    "commit_id": "COMMIT_SHA",
+    "comments": [
+        {
+            "path": "path/to/file.ts",
+            "line": LINE_NUMBER,
+            "side": "RIGHT",
+            "body": "Comment text\n\n```suggestion\n// suggested code here\n```\n\nAdditional explanation..."
+        }
+    ]
+}
+print(json.dumps(payload))
+' | gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews \
   -X POST \
-  -f commit_id="<COMMIT_SHA>" \
-  -f 'comments[][path]=path/to/file.ts' \
-  -F 'comments[][line]=<LINE_NUMBER>' \
-  -f 'comments[][side]=RIGHT' \
-  -f 'comments[][body]=Comment text
-
-```suggestion
-// suggested code here
-```
-
-Additional explanation...' \
+  --input - \
   --jq '{id, state}'
 
-# Returns: {"id": <REVIEW_ID>, "state": "PENDING"}
+# Returns: {"id": REVIEW_ID, "state": "PENDING"}
 
 # Step 2: Submit the pending review
-gh api repos/:owner/:repo/pulls/<PR_NUMBER>/reviews/<REVIEW_ID>/events \
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/reviews/REVIEW_ID/events \
   -X POST \
   -f event="COMMENT" \
   -f body="Optional overall review message"
+
+# Step 3: Verify every comment landed on the correct line
+# Use the pulls/comments endpoint — the reviews/REVIEW_ID/comments endpoint
+# returns line: null for all comments regardless of placement.
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments \
+  --jq '.[] | {path, line, side, preview: .body[0:80]}'
+```
+
+**What to look for in Step 3:** Every comment should have a non-null `line` and `side` matching what you intended. A null `line` means the comment fell back to the review body — re-check the `path` (must match the diff exactly) and `line` (must be a line present in the diff).
+
+### Replying to Comments
+
+To reply to an existing review comment thread (e.g. to acknowledge feedback or post a corrected suggestion), use the replies endpoint with the pull number in the path:
+
+```bash
+python3 -c '
+import json
+payload = {"body": "Reply text, or a corrected suggestion:\n\n```suggestion\nfixed code here\n```"}
+print(json.dumps(payload))
+' | gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments/COMMENT_ID/replies \
+  -X POST \
+  --input -
+```
+
+**CRITICAL path shape:** The URL must be `.../pulls/{PR_NUMBER}/comments/{COMMENT_ID}/replies`. The shorter form `.../pulls/comments/{COMMENT_ID}/replies` (without the pull number) returns 404.
+
+Use `COMMENT_ID` of the **first comment in the thread** (the one that opened the inline annotation), not a reply comment ID. Get IDs from:
+
+```bash
+gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --jq '.[] | {id, line, preview: .body[0:60]}'
 ```
 
 ## Event Types
@@ -139,50 +176,73 @@ gh pr view <PR_NUMBER> --json commits --jq '.commits[-1].oid'
 gh repo view --json owner,name
 ```
 
-### Required Parameters
+### JSON Payload Fields
 
-- `commit_id`: Latest commit SHA from the PR
-- `comments[][path]`: File path relative to repo root
-- `comments[][line]`: End line number (use `-F` for numbers)
-- `comments[][side]`: Use `RIGHT` for added/modified lines (most common), `LEFT` for deleted lines
-- `comments[][body]`: Comment text with optional ```suggestion block
+Build the payload as a Python dict and pipe with `--input -`:
 
-### Optional Parameters
+| Field | Type | Notes |
+|-------|------|-------|
+| `commit_id` | string | Latest commit SHA from the PR |
+| `comments[].path` | string | File path relative to repo root |
+| `comments[].line` | integer | End line number in the file |
+| `comments[].side` | string | `"RIGHT"` for added/modified lines, `"LEFT"` for deleted |
+| `comments[].body` | string | Comment text; embed suggestion block with `\n\`\`\`suggestion\n...\n\`\`\`` |
+| `comments[].start_line` | integer | (optional) Start line for multi-line suggestions |
+| `comments[].start_side` | string | (optional) Required when `start_line` is set |
 
-- `comments[][start_line]`: For multi-line code suggestions (use `-F`)
-- `event`: Omit for PENDING, or use `COMMENT`/`APPROVE`/`REQUEST_CHANGES`
-
-### Syntax Rules
+### Construction Rules
 
 ✅ **DO:**
-- Use single quotes around parameters with `[]`: `'comments[][path]'`
-- Use `-f` for string values
-- Use `-F` for numeric values (line numbers)
-- Use triple backticks with `suggestion` identifier for code suggestions
+- Build the payload as a Python dict and use `json.dumps()` to serialize it
+- Pipe the JSON to `gh api` with `--input -`
+- Use `\n` for newlines inside body strings (Python handles escaping automatically)
+- Embed suggestion blocks inside the body string: `"body": "explanation\n\n\`\`\`suggestion\n...\n\`\`\`"`
+- Verify after posting that every comment has a non-null `line`
 
 ❌ **DON'T:**
-- Use double quotes around `comments[][]` parameters
-- Mix up `-f` and `-F` flags
-- Forget to get commit SHA first
+- Use `-f 'comments[][path]=...'` / `-F 'comments[][line]=...'` flags — they create a flat scalar array, not an array of objects
+- Hand-write JSON strings with literal backticks or newlines in the shell — use Python to serialize
+- Forget to get the commit SHA before building the payload
 
 ## Code Suggestions Format
 
-```bash
--f 'comments[][body]=Your comment explaining the issue
+Place the suggestion block inside the `body` string using `\n` for newlines. Python's `json.dumps` will escape the content correctly:
 
-```suggestion
-// The suggested code that will replace the specified line(s)
-const fixed = "like this";
+```python
+{
+    "path": "src/utils.ts",
+    "line": 42,
+    "side": "RIGHT",
+    "body": "Use optional chaining here to avoid the null-check boilerplate.\n\n```suggestion\nconst value = obj?.nested?.field;\n```"
+}
 ```
 
-Additional context or explanation after the suggestion.'
+For multi-line suggestions, also set `start_line` (and `start_side`) to span the replacement range:
+
+```python
+{
+    "path": "src/utils.ts",
+    "start_line": 40,
+    "start_side": "RIGHT",
+    "line": 42,
+    "side": "RIGHT",
+    "body": "Collapse these three lines.\n\n```suggestion\nconst value = obj?.nested?.field;\n```"
+}
 ```
 
-**Important**: Code suggestions replace the entire line or line range. Make sure the suggested code is complete and correct.
+**Important**: The suggestion replaces the entire line range. Make sure the suggested code is complete and correct.
 
-### Edge Case: Suggestions with Nested Code Blocks
+### Edge Case: Suggestions Containing Triple Backticks
 
-When suggesting changes to markdown files or documentation that contain triple backticks, use 4 backticks or tildes to prevent conflicts:
+When the suggested content itself contains triple backticks — including when correcting a broken code fence — the suggestion block delimiters must use 4 backticks or tildes, otherwise GitHub treats the first ` ``` ` it sees as the closing delimiter and the suggestion content becomes empty.
+
+**Correcting a code fence line** (e.g. replacing ```` ```` with ` ``` `):
+
+```python
+"body": "Closing fence has four backticks instead of three.\n\n````suggestion\n```\n````"
+```
+
+**Suggesting code that contains fenced blocks** (e.g. markdown documentation):
 
 `````markdown
 ````suggestion
@@ -193,7 +253,7 @@ const example = "value";
 ````
 `````
 
-Or use tildes:
+Or use tildes instead of 4 backticks:
 
 ```markdown
 ~~~suggestion
@@ -209,9 +269,12 @@ const example = "value";
 |---------|-----|
 | Posting immediately under time pressure | Still create pending review first - can submit immediately after |
 | "Only one comment so no need for pending" | Use pending anyway - consistent workflow, allows adding more later |
-| Forgetting single quotes around `comments[][]` | Always quote: `'comments[][path]'` not `comments[][path]` |
+| Using `-f 'comments[][path]=...'` flags | Build a Python dict and pipe with `--input -` — `-f [][]` creates flat scalar arrays, not objects |
 | Not getting commit SHA | Run `gh pr view <NUMBER> --json commits --jq '.commits[-1].oid'` |
 | Using wrong event type | Security/bugs → REQUEST_CHANGES, Style → APPROVE, Questions → COMMENT |
+| Skipping post-post verification | Run `gh api repos/OWNER/REPO/pulls/PR_NUMBER/comments --jq '.[] | {path, line}'` to confirm inline placement |
+| Using `.../reviews/REVIEW_ID/comments` to verify | That endpoint returns `line: null` for all comments; use `.../pulls/PR_NUMBER/comments` instead |
+| Using `.../pulls/comments/{id}/replies` for replies | Missing the pull number returns 404; correct form is `.../pulls/{PR_NUMBER}/comments/{id}/replies` |
 
 ## Red Flags - You're About to Violate the Pattern
 
@@ -225,8 +288,13 @@ Stop if you're thinking:
 - **"The approval step slows things down"**
 - **"I'll check for gh later, let me draft the review first"**
 - **"gh is probably installed, no need to check"**
+- **"I'll use `-f 'comments[][]...'` flags, it's simpler"**
+- **"I'll skip the verification step, the post succeeded so it must be fine"**
+- **"I'll verify with `.../reviews/REVIEW_ID/comments`, same thing"**
+- **"I'll reply with `.../pulls/comments/{id}/replies`"**
+- **"The suggestion content is just ` ``` `, no need for 4-backtick delimiters"**
 
-**All of these mean: STOP. Check gh first, get explicit approval, then use pending review.**
+**All of these mean: STOP. Check gh first, get explicit approval, use pending review with JSON payload, then verify.**
 
 **Why pending reviews?** Take the same time (2 API calls vs 1) but provide critical benefits:
 - Can add more comments if you find additional issues while writing the first
@@ -234,11 +302,15 @@ Stop if you're thinking:
 - Consistent workflow regardless of urgency
 - Batches all comments into one notification for the PR author
 
+**Why JSON payload (not `-f` flags)?** The `gh api` `-f 'comments[][field]=value'` syntax appends each value as a separate scalar element in the array. GitHub receives `"comments": ["file.ts", 20, "RIGHT", "text"]` instead of `"comments": [{"path": "file.ts", "line": 20, ...}]`. Without the object structure, GitHub has no line information and falls back to attaching everything to the review body.
+
 **Why approval step?** Users need to see exactly what will be posted publicly:
 - Review comments are public and permanent
 - Code suggestions might be incorrect
 - Tone might need adjustment
 - User might want to refine the message
+
+**Why verification step?** Even with the correct JSON approach, a wrong `path` or a `line` not present in the diff will silently drop the inline placement. Verification catches this before the user discovers it on GitHub.
 
 ## Complete Example with Approval
 
@@ -270,30 +342,62 @@ Ready to post this review?
 **Step 2: After approval, post the review**
 
 ```bash
-# Create pending review with multiple comments
-gh api repos/:owner/:repo/pulls/123/reviews \
+# Create pending review — JSON payload ensures comments are objects with line info
+python3 -c '
+import json
+payload = {
+    "commit_id": "abc123",
+    "comments": [
+        {
+            "path": "src/auth.ts",
+            "line": 20,
+            "side": "RIGHT",
+            "body": "Token expiry validation is missing.\n\n```suggestion\nif (token.expiresAt < Date.now()) throw new AuthError(\"token expired\");\n```"
+        },
+        {
+            "path": "src/auth.ts",
+            "line": 35,
+            "side": "RIGHT",
+            "body": "Missing error handling for the fetch call.\n\n```suggestion\nconst res = await fetch(url).catch(err => { throw new NetworkError(err); });\n```"
+        },
+        {
+            "path": "tests/auth.test.ts",
+            "line": 12,
+            "side": "RIGHT",
+            "body": "Add a test case for the expired-token error path."
+        }
+    ]
+}
+print(json.dumps(payload))
+' | gh api repos/OWNER/REPO/pulls/123/reviews \
   -X POST \
-  -f commit_id="abc123" \
-  -f 'comments[][path]=src/auth.ts' \
-  -F 'comments[][line]=20' \
-  -f 'comments[][side]=RIGHT' \
-  -f 'comments[][body]=First issue...' \
-  -f 'comments[][path]=src/auth.ts' \
-  -F 'comments[][line]=35' \
-  -f 'comments[][side]=RIGHT' \
-  -f 'comments[][body]=Second issue...' \
-  -f 'comments[][path]=tests/auth.test.ts' \
-  -F 'comments[][line]=12' \
-  -f 'comments[][side]=RIGHT' \
-  -f 'comments[][body]=Third issue...' \
+  --input - \
   --jq '{id, state}'
 
 # Submit with appropriate event type
-gh api repos/:owner/:repo/pulls/123/reviews/<REVIEW_ID>/events \
+gh api repos/OWNER/REPO/pulls/123/reviews/REVIEW_ID/events \
   -X POST \
   -f event="REQUEST_CHANGES" \
   -f body="Found 3 issues that need to be addressed before merging."
 ```
+
+**Step 3: Verify inline placement**
+
+```bash
+# Use pulls/comments, NOT reviews/REVIEW_ID/comments — the latter returns line: null for everything
+gh api repos/OWNER/REPO/pulls/123/comments \
+  --jq '.[] | {path, line, side, preview: .body[0:80]}'
+```
+
+Expected output — every comment should have a non-null `line`:
+
+```json
+{"path": "src/auth.ts", "line": 20, "preview": "Token expiry validation is missing."}
+{"path": "src/auth.ts", "line": 35, "preview": "Missing error handling for the fetch call."}
+{"path": "tests/auth.test.ts", "line": 12, "preview": "Add a test case for the expired-token error path."}
+```
+
+If any `line` is `null`, that comment fell back to the review body. Check that the `path` exactly matches the filename in the diff and that the `line` number is present in the diff hunk.
 
 ## Real-World Impact
 
@@ -308,3 +412,4 @@ gh api repos/:owner/:repo/pulls/123/reviews/<REVIEW_ID>/events \
 - PR author gets one notification with full context
 - Can refine comments before posting
 - Professional, organized reviews
+- Inline comments confirmed to land on the correct lines
