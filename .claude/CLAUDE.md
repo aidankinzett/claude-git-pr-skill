@@ -1,4 +1,6 @@
-# Instructions for Claude Code
+# GitHub PR Review Skill for Claude Code
+
+A Claude Code skill that enforces consistent, professional GitHub PR reviews using the `gh` CLI. It creates pending reviews for batching comments, requires explicit user approval before posting, and applies correct syntax for code suggestions and event types.
 
 ## Changelog Maintenance
 
